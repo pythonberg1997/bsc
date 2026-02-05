@@ -1440,6 +1440,21 @@ func NewRPCPendingTransaction(tx *types.Transaction, current *types.Header, conf
 	return newRPCTransaction(tx, common.Hash{}, blockNumber, blockTime, 0, baseFee, config)
 }
 
+// RPCOracleTransaction wraps RPCTransaction with oracle-specific metadata.
+type RPCOracleTransaction struct {
+	RPCTransaction
+	OracleType string `json:"oracleType"`
+}
+
+// NewRPCOraclePendingTransaction creates an enriched oracle transaction for the RPC representation.
+func NewRPCOraclePendingTransaction(tx *types.Transaction, oracleType string, current *types.Header, config *params.ChainConfig) *RPCOracleTransaction {
+	rpcTx := NewRPCPendingTransaction(tx, current, config)
+	return &RPCOracleTransaction{
+		RPCTransaction: *rpcTx,
+		OracleType:     oracleType,
+	}
+}
+
 // newRPCTransactionsFromBlockIndex returns transactions that will serialize to the RPC representation.
 func newRPCTransactionsFromBlockIndex(b *types.Block, config *params.ChainConfig) []*RPCTransaction {
 	txs := b.Transactions()

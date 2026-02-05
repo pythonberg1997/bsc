@@ -411,8 +411,11 @@ func (b *backendMock) TxPoolContent() (map[common.Address][]*types.Transaction, 
 func (b *backendMock) TxPoolContentFrom(addr common.Address) ([]*types.Transaction, []*types.Transaction) {
 	return nil, nil
 }
-func (b *backendMock) SubscribeNewTxsEvent(chan<- core.NewTxsEvent) event.Subscription { return nil }
-func (b *backendMock) SubscribeLogsEvent(ch chan<- []*types.Log) event.Subscription    { return nil }
+func (b *backendMock) SubscribeNewTxsEvent(chan<- core.NewTxsEvent) event.Subscription       { return nil }
+func (b *backendMock) SubscribeNewOracleTxsEvent(chan<- core.NewOracleTxsEvent) event.Subscription {
+	return nil
+}
+func (b *backendMock) SubscribeLogsEvent(ch chan<- []*types.Log) event.Subscription { return nil }
 func (b *backendMock) SubscribeRemovedLogsEvent(ch chan<- core.RemovedLogsEvent) event.Subscription {
 	return nil
 }

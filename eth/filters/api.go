@@ -29,6 +29,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/gopool"
 	"github.com/ethereum/go-ethereum/common/hexutil"
+	"github.com/ethereum/go-ethereum/core"
 	"github.com/ethereum/go-ethereum/core/history"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/internal/ethapi"
@@ -196,6 +197,47 @@ func (api *FilterAPI) NewPendingTransactions(ctx context.Context, fullTx *bool) 
 					} else {
 						notifier.Notify(rpcSub.ID, tx.Hash())
 					}
+				}
+			case <-rpcSub.Err():
+				return
+			}
+		}
+	})
+
+	return rpcSub, nil
+}
+
+// NewOracleTransactions creates a subscription that is triggered each time an
+// oracle-related transaction (e.g., Chainlink, Redstone price feed update) enters
+// the transaction pool. Each notification includes the full transaction with
+// enriched oracle metadata (oracle provider type).
+func (api *FilterAPI) NewOracleTransactions(ctx context.Context) (*rpc.Subscription, error) {
+	notifier, supported := rpc.NotifierFromContext(ctx)
+	if !supported {
+		return &rpc.Subscription{}, rpc.ErrNotificationsUnsupported
+	}
+
+	rpcSub := notifier.CreateSubscription()
+
+	gopool.Submit(func() {
+		oracleTxs := make(chan []core.OracleTxInfo, 64)
+		oracleTxSub := api.events.SubscribeOracleTxs(oracleTxs)
+		defer oracleTxSub.Unsubscribe()
+
+		chainConfig := api.sys.backend.ChainConfig()
+
+		for {
+			select {
+			case txInfos := <-oracleTxs:
+				latest := api.sys.backend.CurrentHeader()
+				for _, txInfo := range txInfos {
+					rpcTx := ethapi.NewRPCOraclePendingTransaction(
+						txInfo.Tx,
+						string(txInfo.Info.Type),
+						latest,
+						chainConfig,
+					)
+					notifier.Notify(rpcSub.ID, rpcTx)
 				}
 			case <-rpcSub.Err():
 				return

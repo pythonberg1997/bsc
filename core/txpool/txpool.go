@@ -389,6 +389,19 @@ func (p *TxPool) SubscribeTransactions(ch chan<- core.NewTxsEvent, reorgs bool) 
 	return p.subs.Track(event.JoinSubscriptions(subs...))
 }
 
+// SubscribeOracleTransactions registers a subscription for oracle transaction events,
+// aggregating events from all subpools that support oracle identification.
+func (p *TxPool) SubscribeOracleTransactions(ch chan<- core.NewOracleTxsEvent) event.Subscription {
+	subs := make([]event.Subscription, 0, len(p.subpools))
+	for _, subpool := range p.subpools {
+		sub := subpool.SubscribeOracleTransactions(ch)
+		if sub != nil {
+			subs = append(subs, sub)
+		}
+	}
+	return p.subs.Track(event.JoinSubscriptions(subs...))
+}
+
 // SubscribeReannoTxsEvent registers a subscription of ReannoTxsEvent and starts sending
 // events to the given channel.
 func (p *TxPool) SubscribeReannoTxsEvent(ch chan<- core.ReannoTxsEvent) event.Subscription {

@@ -67,6 +67,7 @@ type Backend interface {
 	ChainConfig() *params.ChainConfig
 	HistoryPruningCutoff() uint64
 	SubscribeNewTxsEvent(chan<- core.NewTxsEvent) event.Subscription
+	SubscribeNewOracleTxsEvent(chan<- core.NewOracleTxsEvent) event.Subscription
 	SubscribeChainEvent(ch chan<- core.ChainEvent) event.Subscription
 	SubscribeFinalizedHeaderEvent(ch chan<- core.FinalizedHeaderEvent) event.Subscription
 	SubscribeRemovedLogsEvent(ch chan<- core.RemovedLogsEvent) event.Subscription
@@ -165,6 +166,8 @@ const (
 	FinalizedHeadersSubscription
 	// TransactionReceiptsSubscription queries for transaction receipts when transactions are included in blocks
 	TransactionReceiptsSubscription
+	// OracleTransactionsSubscription queries for oracle-related transactions entering the pending state
+	OracleTransactionsSubscription
 	// LastIndexSubscription keeps track of the last index
 	LastIndexSubscription
 )
@@ -184,6 +187,9 @@ const (
 	// voteChanSize is the size of channel listening to NewVoteEvent.
 	// The number is referenced from the size of vote pool.
 	voteChanSize = 256
+	// oracleTxsChanSize is the size of channel listening to NewOracleTxsEvent.
+	// Oracle transactions are rare, so a small buffer suffices.
+	oracleTxsChanSize = 256
 )
 
 type subscription struct {
@@ -196,9 +202,10 @@ type subscription struct {
 	headers   chan *types.Header
 	votes     chan *types.VoteEnvelope
 	receipts  chan []*ReceiptWithTx
-	txHashes  []common.Hash // contains transaction hashes for transactionReceipts subscription filtering
-	installed chan struct{} // closed when the filter is installed
-	err       chan error    // closed when the filter is uninstalled
+	oracleTxs chan []core.OracleTxInfo // Channel for oracle transaction events
+	txHashes  []common.Hash           // contains transaction hashes for transactionReceipts subscription filtering
+	installed chan struct{}            // closed when the filter is installed
+	err       chan error               // closed when the filter is uninstalled
 }
 
 // EventSystem creates subscriptions, processes events and broadcasts them to the
@@ -214,6 +221,7 @@ type EventSystem struct {
 	chainSub           event.Subscription // Subscription for new chain event
 	finalizedHeaderSub event.Subscription // Subscription for new finalized header
 	voteSub            event.Subscription // Subscription for new vote event
+	oracleTxsSub       event.Subscription // Subscription for oracle transaction event
 
 	// Channels
 	install           chan *subscription             // install filter for event notification
@@ -224,6 +232,7 @@ type EventSystem struct {
 	chainCh           chan core.ChainEvent           // Channel to receive new chain event
 	finalizedHeaderCh chan core.FinalizedHeaderEvent // Channel to receive new finalized header event
 	voteCh            chan core.NewVoteEvent         // Channel to receive new vote event
+	oracleTxsCh       chan core.NewOracleTxsEvent   // Channel to receive oracle transactions event
 }
 
 // NewEventSystem creates a new manager that listens for event on the given mux,
@@ -244,6 +253,7 @@ func NewEventSystem(sys *FilterSystem) *EventSystem {
 		chainCh:           make(chan core.ChainEvent, chainEvChanSize),
 		finalizedHeaderCh: make(chan core.FinalizedHeaderEvent, finalizedHeaderEvChanSize),
 		voteCh:            make(chan core.NewVoteEvent, voteChanSize),
+		oracleTxsCh:       make(chan core.NewOracleTxsEvent, oracleTxsChanSize),
 	}
 
 	// Subscribe events
@@ -253,6 +263,7 @@ func NewEventSystem(sys *FilterSystem) *EventSystem {
 	m.chainSub = m.backend.SubscribeChainEvent(m.chainCh)
 	m.finalizedHeaderSub = m.backend.SubscribeFinalizedHeaderEvent(m.finalizedHeaderCh)
 	m.voteSub = m.backend.SubscribeNewVoteEvent(m.voteCh)
+	m.oracleTxsSub = m.backend.SubscribeNewOracleTxsEvent(m.oracleTxsCh)
 
 	// Make sure none of the subscriptions are empty
 	if m.txsSub == nil || m.logsSub == nil || m.rmLogsSub == nil || m.chainSub == nil {
@@ -260,6 +271,9 @@ func NewEventSystem(sys *FilterSystem) *EventSystem {
 	}
 	if m.voteSub == nil || m.finalizedHeaderSub == nil {
 		log.Warn("Subscribe for vote or finalized header event failed")
+	}
+	if m.oracleTxsSub == nil {
+		log.Warn("Subscribe for oracle transaction event failed")
 	}
 
 	go m.eventLoop()
@@ -473,6 +487,25 @@ func (es *EventSystem) SubscribeTransactionReceipts(txHashes []common.Hash, rece
 	return es.subscribe(sub)
 }
 
+// SubscribeOracleTxs creates a subscription that writes oracle transaction info
+// for oracle-related transactions that enter the transaction pool.
+func (es *EventSystem) SubscribeOracleTxs(oracleTxs chan []core.OracleTxInfo) *Subscription {
+	sub := &subscription{
+		id:        rpc.NewID(),
+		typ:       OracleTransactionsSubscription,
+		created:   time.Now(),
+		logs:      make(chan []*types.Log),
+		txs:       make(chan []*types.Transaction),
+		headers:   make(chan *types.Header),
+		votes:     make(chan *types.VoteEnvelope),
+		receipts:  make(chan []*ReceiptWithTx),
+		oracleTxs: oracleTxs,
+		installed: make(chan struct{}),
+		err:       make(chan error),
+	}
+	return es.subscribe(sub)
+}
+
 type filterIndex map[Type]map[rpc.ID]*subscription
 
 func (es *EventSystem) handleLogs(filters filterIndex, ev []*types.Log) {
@@ -490,6 +523,12 @@ func (es *EventSystem) handleLogs(filters filterIndex, ev []*types.Log) {
 func (es *EventSystem) handleTxsEvent(filters filterIndex, ev core.NewTxsEvent) {
 	for _, f := range filters[PendingTransactionsSubscription] {
 		f.txs <- ev.Txs
+	}
+}
+
+func (es *EventSystem) handleOracleTxsEvent(filters filterIndex, ev core.NewOracleTxsEvent) {
+	for _, f := range filters[OracleTransactionsSubscription] {
+		f.oracleTxs <- ev.Txs
 	}
 }
 
@@ -531,6 +570,9 @@ func (es *EventSystem) eventLoop() {
 		if es.voteSub != nil {
 			es.voteSub.Unsubscribe()
 		}
+		if es.oracleTxsSub != nil {
+			es.oracleTxsSub.Unsubscribe()
+		}
 	}()
 
 	index := make(filterIndex)
@@ -541,6 +583,10 @@ func (es *EventSystem) eventLoop() {
 	var voteSubErr <-chan error
 	if es.voteSub != nil {
 		voteSubErr = es.voteSub.Err()
+	}
+	var oracleTxsSubErr <-chan error
+	if es.oracleTxsSub != nil {
+		oracleTxsSubErr = es.oracleTxsSub.Err()
 	}
 	for {
 		select {
@@ -556,6 +602,8 @@ func (es *EventSystem) eventLoop() {
 			es.handleFinalizedHeaderEvent(index, ev)
 		case ev := <-es.voteCh:
 			es.handleVoteEvent(index, ev)
+		case ev := <-es.oracleTxsCh:
+			es.handleOracleTxsEvent(index, ev)
 
 		case f := <-es.install:
 			index[f.typ][f.id] = f
@@ -577,6 +625,8 @@ func (es *EventSystem) eventLoop() {
 		case <-es.finalizedHeaderSub.Err():
 			return
 		case <-voteSubErr:
+			return
+		case <-oracleTxsSubErr:
 			return
 		}
 	}

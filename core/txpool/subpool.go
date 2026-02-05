@@ -155,6 +155,10 @@ type SubPool interface {
 	// or also for reorged out ones.
 	SubscribeTransactions(ch chan<- core.NewTxsEvent, reorgs bool) event.Subscription
 
+	// SubscribeOracleTransactions subscribes to oracle-related transaction events.
+	// Returns nil if this subpool does not support oracle transaction identification.
+	SubscribeOracleTransactions(ch chan<- core.NewOracleTxsEvent) event.Subscription
+
 	// SubscribeReannoTxsEvent should return an event subscription of
 	// ReannoTxsEvent and send events to the given channel.
 	SubscribeReannoTxsEvent(chan<- core.ReannoTxsEvent) event.Subscription

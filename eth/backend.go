@@ -41,6 +41,7 @@ import (
 	"github.com/ethereum/go-ethereum/core/monitor"
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/core/state/pruner"
+	"github.com/ethereum/go-ethereum/core/oracle"
 	"github.com/ethereum/go-ethereum/core/txpool"
 	"github.com/ethereum/go-ethereum/core/txpool/blobpool"
 	"github.com/ethereum/go-ethereum/core/txpool/legacypool"
@@ -412,6 +413,12 @@ func New(stack *node.Node, config *ethconfig.Config) (*Ethereum, error) {
 		config.TxPool.Journal = stack.ResolvePath(config.TxPool.Journal)
 	}
 	legacyPool := legacypool.New(config.TxPool, eth.blockchain)
+
+	// Set up oracle transaction identification
+	oracleRegistry := oracle.NewRegistry()
+	oracleRegistry.Register(oracle.NewChainlinkIdentifier())
+	oracleRegistry.Register(oracle.NewRedstoneIdentifier())
+	legacyPool.SetOracleIdentifier(oracleRegistry)
 
 	if config.BlobPool.Datadir != "" {
 		config.BlobPool.Datadir = stack.ResolvePath(config.BlobPool.Datadir)

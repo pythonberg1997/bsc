@@ -17,6 +17,7 @@
 package core
 
 import (
+	"github.com/ethereum/go-ethereum/core/oracle"
 	"github.com/ethereum/go-ethereum/core/types"
 )
 
@@ -52,3 +53,12 @@ type ChainHeadEvent struct {
 }
 
 type HighestVerifiedBlockEvent struct{ Header *types.Header }
+
+// OracleTxInfo pairs a transaction with its oracle identification metadata.
+type OracleTxInfo struct {
+	Tx   *types.Transaction
+	Info *oracle.OracleInfo
+}
+
+// NewOracleTxsEvent is posted when oracle-related transactions enter the transaction pool.
+type NewOracleTxsEvent struct{ Txs []OracleTxInfo }

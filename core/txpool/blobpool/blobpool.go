@@ -1758,6 +1758,12 @@ func (p *BlobPool) SubscribeTransactions(ch chan<- core.NewTxsEvent, reorgs bool
 	}
 }
 
+// SubscribeOracleTransactions is a no-op for blob pool since blob transactions
+// are not oracle-related.
+func (p *BlobPool) SubscribeOracleTransactions(ch chan<- core.NewOracleTxsEvent) event.Subscription {
+	return nil
+}
+
 // SubscribeReannoTxsEvent registers a subscription of ReannoTxsEvent and
 // starts sending event to the given channel.
 func (p *BlobPool) SubscribeReannoTxsEvent(ch chan<- core.ReannoTxsEvent) event.Subscription {

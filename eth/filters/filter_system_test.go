@@ -48,6 +48,7 @@ type testBackend struct {
 	chainFeed           event.Feed
 	finalizedHeaderFeed event.Feed
 	voteFeed            event.Feed
+	oracleTxFeed        event.Feed
 	pendingBlock        *types.Block
 	pendingReceipts     types.Receipts
 }
@@ -142,6 +143,10 @@ func (b *testBackend) GetLogs(ctx context.Context, hash common.Hash, number uint
 
 func (b *testBackend) SubscribeNewTxsEvent(ch chan<- core.NewTxsEvent) event.Subscription {
 	return b.txFeed.Subscribe(ch)
+}
+
+func (b *testBackend) SubscribeNewOracleTxsEvent(ch chan<- core.NewOracleTxsEvent) event.Subscription {
+	return b.oracleTxFeed.Subscribe(ch)
 }
 
 func (b *testBackend) SubscribeRemovedLogsEvent(ch chan<- core.RemovedLogsEvent) event.Subscription {

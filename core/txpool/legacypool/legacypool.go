@@ -29,10 +29,13 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/holiman/uint256"
+
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/prque"
 	"github.com/ethereum/go-ethereum/consensus/misc/eip1559"
 	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/core/oracle"
 	"github.com/ethereum/go-ethereum/core/state"
 	"github.com/ethereum/go-ethereum/core/txpool"
 	"github.com/ethereum/go-ethereum/core/types"
@@ -41,7 +44,6 @@ import (
 	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rlp"
-	"github.com/holiman/uint256"
 )
 
 const (
@@ -239,16 +241,18 @@ func (config *Config) sanitize() Config {
 // will reject new transactions with delegations from that account with standard in-flight
 // transactions.
 type LegacyPool struct {
-	config       Config
-	chainconfig  *params.ChainConfig
-	chain        BlockChain
-	gasTip       atomic.Pointer[uint256.Int]
-	txFeed       event.Feed
-	reannoTxFeed event.Feed // Event feed for announcing transactions again
-	scope        event.SubscriptionScope
-	signer       types.Signer
-	mu           sync.RWMutex
-	maxGas       atomic.Uint64 // Currently accepted max gas, it will be modified by MinerAPI
+	config           Config
+	chainconfig      *params.ChainConfig
+	chain            BlockChain
+	gasTip           atomic.Pointer[uint256.Int]
+	txFeed           event.Feed
+	oracleTxFeed     event.Feed       // Event feed for oracle-related transactions
+	oracleIdentifier *oracle.Registry // Pluggable oracle tx classifier
+	reannoTxFeed     event.Feed       // Event feed for announcing transactions again
+	scope            event.SubscriptionScope
+	signer           types.Signer
+	mu               sync.RWMutex
+	maxGas           atomic.Uint64 // Currently accepted max gas, it will be modified by MinerAPI
 
 	currentHead   atomic.Pointer[types.Header] // Current head of the blockchain
 	currentState  *state.StateDB               // Current state in the blockchain head
@@ -454,6 +458,16 @@ func (pool *LegacyPool) SubscribeTransactions(ch chan<- core.NewTxsEvent, reorgs
 	// is because the new txs are added to the queue, resurrected ones too and
 	// reorgs run lazily, so separating the two would need a marker.
 	return pool.txFeed.Subscribe(ch)
+}
+
+// SubscribeOracleTransactions registers a subscription for oracle transaction events.
+func (pool *LegacyPool) SubscribeOracleTransactions(ch chan<- core.NewOracleTxsEvent) event.Subscription {
+	return pool.oracleTxFeed.Subscribe(ch)
+}
+
+// SetOracleIdentifier sets the oracle identifier registry for classifying transactions.
+func (pool *LegacyPool) SetOracleIdentifier(registry *oracle.Registry) {
+	pool.oracleIdentifier = registry
 }
 
 // SubscribeReannoTxsEvent registers a subscription of ReannoTxsEvent and
@@ -1418,6 +1432,19 @@ func (pool *LegacyPool) runReorg(done chan struct{}, reset *txpoolResetRequest, 
 			txs = append(txs, set.Flatten()...)
 		}
 		pool.txFeed.Send(core.NewTxsEvent{Txs: txs})
+
+		// Classify and emit oracle transactions on the dedicated feed.
+		if pool.oracleIdentifier != nil && pool.oracleIdentifier.Len() > 0 {
+			var oracleTxs []core.OracleTxInfo
+			for _, tx := range txs {
+				if info := pool.oracleIdentifier.Identify(tx); info != nil {
+					oracleTxs = append(oracleTxs, core.OracleTxInfo{Tx: tx, Info: info})
+				}
+			}
+			if len(oracleTxs) > 0 {
+				pool.oracleTxFeed.Send(core.NewOracleTxsEvent{Txs: oracleTxs})
+			}
+		}
 	}
 }
 
@@ -1561,7 +1588,7 @@ func (pool *LegacyPool) promoteExecutables(accounts []common.Address) []*types.T
 		queuedGauge.Dec(int64(len(readies)))
 
 		// Drop all transactions over the allowed limit
-		var caps = list.Cap(int(pool.config.AccountQueue))
+		caps := list.Cap(int(pool.config.AccountQueue))
 		for _, tx := range caps {
 			hash := tx.Hash()
 			pool.all.Remove(hash)
