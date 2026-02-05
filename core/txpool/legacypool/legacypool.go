@@ -42,6 +42,7 @@ import (
 	"github.com/ethereum/go-ethereum/params"
 	"github.com/ethereum/go-ethereum/rlp"
 	"github.com/holiman/uint256"
+	"bytes"
 )
 
 const (
@@ -774,6 +775,18 @@ func (pool *LegacyPool) add(tx *types.Transaction) (replaced bool, err error) {
 	}
 	// already validated by this point
 	from, _ := types.Sender(pool.signer, tx)
+
+	// check if it is a chainlink tx
+	if from == common.HexToAddress("0x17721D492b7EFdcf7365e541EdEFDDE552A1360F") &&
+		tx.To() != nil && *tx.To() == common.HexToAddress("0x9A7032C6EDCBbf164E201ca9dF5894BC35416e6A") {
+		log.Info("Detect chainlink tx", "hash", hash.Hex())
+	}
+
+	// check if it is a redstone tx
+	if tx.To() != nil && *tx.To() == common.HexToAddress("0x97c19d3Ae8e4d74e25EF3AFf3a277fB614ed76D4") &&
+		tx.Data() != nil && len(tx.Data()) >= 4 && bytes.Equal(tx.Data()[:4], []byte{0xb7, 0xa1, 0x62, 0x51}) {
+		log.Info("Detect redstone tx", "hash", hash.Hex())
+	}
 
 	// If the address is not yet known, request exclusivity to track the account
 	// only by this subpool until all transactions are evicted
