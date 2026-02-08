@@ -159,6 +159,10 @@ type SubPool interface {
 	// Returns nil if this subpool does not support oracle transaction identification.
 	SubscribeOracleTransactions(ch chan<- core.NewOracleTxsEvent) event.Subscription
 
+	// SubscribeHighGasTransactions subscribes to high-gas-cost transaction events.
+	// Returns nil if this subpool does not support high-gas-cost filtering.
+	SubscribeHighGasTransactions(ch chan<- core.NewHighGasTxsEvent) event.Subscription
+
 	// SubscribeReannoTxsEvent should return an event subscription of
 	// ReannoTxsEvent and send events to the given channel.
 	SubscribeReannoTxsEvent(chan<- core.ReannoTxsEvent) event.Subscription

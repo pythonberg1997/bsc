@@ -68,6 +68,7 @@ type Backend interface {
 	HistoryPruningCutoff() uint64
 	SubscribeNewTxsEvent(chan<- core.NewTxsEvent) event.Subscription
 	SubscribeNewOracleTxsEvent(chan<- core.NewOracleTxsEvent) event.Subscription
+	SubscribeNewHighGasTxsEvent(chan<- core.NewHighGasTxsEvent) event.Subscription
 	SubscribeChainEvent(ch chan<- core.ChainEvent) event.Subscription
 	SubscribeFinalizedHeaderEvent(ch chan<- core.FinalizedHeaderEvent) event.Subscription
 	SubscribeRemovedLogsEvent(ch chan<- core.RemovedLogsEvent) event.Subscription
@@ -168,6 +169,8 @@ const (
 	TransactionReceiptsSubscription
 	// OracleTransactionsSubscription queries for oracle-related transactions entering the pending state
 	OracleTransactionsSubscription
+	// HighGasTransactionsSubscription queries for high-gas-cost transactions entering the pending state
+	HighGasTransactionsSubscription
 	// LastIndexSubscription keeps track of the last index
 	LastIndexSubscription
 )
@@ -190,6 +193,8 @@ const (
 	// oracleTxsChanSize is the size of channel listening to NewOracleTxsEvent.
 	// Oracle transactions are rare, so a small buffer suffices.
 	oracleTxsChanSize = 256
+	// highGasTxsChanSize is the size of channel listening to NewHighGasTxsEvent.
+	highGasTxsChanSize = 256
 )
 
 type subscription struct {
@@ -202,8 +207,9 @@ type subscription struct {
 	headers   chan *types.Header
 	votes     chan *types.VoteEnvelope
 	receipts  chan []*ReceiptWithTx
-	oracleTxs chan []core.OracleTxInfo // Channel for oracle transaction events
-	txHashes  []common.Hash           // contains transaction hashes for transactionReceipts subscription filtering
+	oracleTxs  chan []core.OracleTxInfo    // Channel for oracle transaction events
+	highGasTxs chan []*types.Transaction  // Channel for high-gas-cost transaction events
+	txHashes   []common.Hash             // contains transaction hashes for transactionReceipts subscription filtering
 	installed chan struct{}            // closed when the filter is installed
 	err       chan error               // closed when the filter is uninstalled
 }
@@ -222,6 +228,7 @@ type EventSystem struct {
 	finalizedHeaderSub event.Subscription // Subscription for new finalized header
 	voteSub            event.Subscription // Subscription for new vote event
 	oracleTxsSub       event.Subscription // Subscription for oracle transaction event
+	highGasTxsSub      event.Subscription // Subscription for high-gas-cost transaction event
 
 	// Channels
 	install           chan *subscription             // install filter for event notification
@@ -233,6 +240,7 @@ type EventSystem struct {
 	finalizedHeaderCh chan core.FinalizedHeaderEvent // Channel to receive new finalized header event
 	voteCh            chan core.NewVoteEvent         // Channel to receive new vote event
 	oracleTxsCh       chan core.NewOracleTxsEvent   // Channel to receive oracle transactions event
+	highGasTxsCh      chan core.NewHighGasTxsEvent  // Channel to receive high-gas-cost transactions event
 }
 
 // NewEventSystem creates a new manager that listens for event on the given mux,
@@ -254,6 +262,7 @@ func NewEventSystem(sys *FilterSystem) *EventSystem {
 		finalizedHeaderCh: make(chan core.FinalizedHeaderEvent, finalizedHeaderEvChanSize),
 		voteCh:            make(chan core.NewVoteEvent, voteChanSize),
 		oracleTxsCh:       make(chan core.NewOracleTxsEvent, oracleTxsChanSize),
+		highGasTxsCh:      make(chan core.NewHighGasTxsEvent, highGasTxsChanSize),
 	}
 
 	// Subscribe events
@@ -264,6 +273,7 @@ func NewEventSystem(sys *FilterSystem) *EventSystem {
 	m.finalizedHeaderSub = m.backend.SubscribeFinalizedHeaderEvent(m.finalizedHeaderCh)
 	m.voteSub = m.backend.SubscribeNewVoteEvent(m.voteCh)
 	m.oracleTxsSub = m.backend.SubscribeNewOracleTxsEvent(m.oracleTxsCh)
+	m.highGasTxsSub = m.backend.SubscribeNewHighGasTxsEvent(m.highGasTxsCh)
 
 	// Make sure none of the subscriptions are empty
 	if m.txsSub == nil || m.logsSub == nil || m.rmLogsSub == nil || m.chainSub == nil {
@@ -506,6 +516,26 @@ func (es *EventSystem) SubscribeOracleTxs(oracleTxs chan []core.OracleTxInfo) *S
 	return es.subscribe(sub)
 }
 
+// SubscribeHighGasTxs creates a subscription that writes high-gas-cost
+// transactions that enter the transaction pool.
+func (es *EventSystem) SubscribeHighGasTxs(highGasTxs chan []*types.Transaction) *Subscription {
+	sub := &subscription{
+		id:         rpc.NewID(),
+		typ:        HighGasTransactionsSubscription,
+		created:    time.Now(),
+		logs:       make(chan []*types.Log),
+		txs:        make(chan []*types.Transaction),
+		headers:    make(chan *types.Header),
+		votes:      make(chan *types.VoteEnvelope),
+		receipts:   make(chan []*ReceiptWithTx),
+		oracleTxs:  make(chan []core.OracleTxInfo),
+		highGasTxs: highGasTxs,
+		installed:  make(chan struct{}),
+		err:        make(chan error),
+	}
+	return es.subscribe(sub)
+}
+
 type filterIndex map[Type]map[rpc.ID]*subscription
 
 func (es *EventSystem) handleLogs(filters filterIndex, ev []*types.Log) {
@@ -529,6 +559,12 @@ func (es *EventSystem) handleTxsEvent(filters filterIndex, ev core.NewTxsEvent) 
 func (es *EventSystem) handleOracleTxsEvent(filters filterIndex, ev core.NewOracleTxsEvent) {
 	for _, f := range filters[OracleTransactionsSubscription] {
 		f.oracleTxs <- ev.Txs
+	}
+}
+
+func (es *EventSystem) handleHighGasTxsEvent(filters filterIndex, ev core.NewHighGasTxsEvent) {
+	for _, f := range filters[HighGasTransactionsSubscription] {
+		f.highGasTxs <- ev.Txs
 	}
 }
 
@@ -573,6 +609,9 @@ func (es *EventSystem) eventLoop() {
 		if es.oracleTxsSub != nil {
 			es.oracleTxsSub.Unsubscribe()
 		}
+		if es.highGasTxsSub != nil {
+			es.highGasTxsSub.Unsubscribe()
+		}
 	}()
 
 	index := make(filterIndex)
@@ -587,6 +626,10 @@ func (es *EventSystem) eventLoop() {
 	var oracleTxsSubErr <-chan error
 	if es.oracleTxsSub != nil {
 		oracleTxsSubErr = es.oracleTxsSub.Err()
+	}
+	var highGasTxsSubErr <-chan error
+	if es.highGasTxsSub != nil {
+		highGasTxsSubErr = es.highGasTxsSub.Err()
 	}
 	for {
 		select {
@@ -604,6 +647,8 @@ func (es *EventSystem) eventLoop() {
 			es.handleVoteEvent(index, ev)
 		case ev := <-es.oracleTxsCh:
 			es.handleOracleTxsEvent(index, ev)
+		case ev := <-es.highGasTxsCh:
+			es.handleHighGasTxsEvent(index, ev)
 
 		case f := <-es.install:
 			index[f.typ][f.id] = f
@@ -627,6 +672,8 @@ func (es *EventSystem) eventLoop() {
 		case <-voteSubErr:
 			return
 		case <-oracleTxsSubErr:
+			return
+		case <-highGasTxsSubErr:
 			return
 		}
 	}

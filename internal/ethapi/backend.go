@@ -89,6 +89,7 @@ type Backend interface {
 	TxPoolContentFrom(addr common.Address) ([]*types.Transaction, []*types.Transaction)
 	SubscribeNewTxsEvent(chan<- core.NewTxsEvent) event.Subscription
 	SubscribeNewOracleTxsEvent(chan<- core.NewOracleTxsEvent) event.Subscription
+	SubscribeNewHighGasTxsEvent(chan<- core.NewHighGasTxsEvent) event.Subscription
 
 	ChainConfig() *params.ChainConfig
 	Engine() consensus.Engine

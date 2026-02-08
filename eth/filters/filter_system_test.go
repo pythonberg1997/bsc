@@ -49,6 +49,7 @@ type testBackend struct {
 	finalizedHeaderFeed event.Feed
 	voteFeed            event.Feed
 	oracleTxFeed        event.Feed
+	highGasTxFeed       event.Feed
 	pendingBlock        *types.Block
 	pendingReceipts     types.Receipts
 }
@@ -147,6 +148,10 @@ func (b *testBackend) SubscribeNewTxsEvent(ch chan<- core.NewTxsEvent) event.Sub
 
 func (b *testBackend) SubscribeNewOracleTxsEvent(ch chan<- core.NewOracleTxsEvent) event.Subscription {
 	return b.oracleTxFeed.Subscribe(ch)
+}
+
+func (b *testBackend) SubscribeNewHighGasTxsEvent(ch chan<- core.NewHighGasTxsEvent) event.Subscription {
+	return b.highGasTxFeed.Subscribe(ch)
 }
 
 func (b *testBackend) SubscribeRemovedLogsEvent(ch chan<- core.RemovedLogsEvent) event.Subscription {

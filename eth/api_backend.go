@@ -425,6 +425,10 @@ func (b *EthAPIBackend) SubscribeNewOracleTxsEvent(ch chan<- core.NewOracleTxsEv
 	return b.eth.txPool.SubscribeOracleTransactions(ch)
 }
 
+func (b *EthAPIBackend) SubscribeNewHighGasTxsEvent(ch chan<- core.NewHighGasTxsEvent) event.Subscription {
+	return b.eth.txPool.SubscribeHighGasTransactions(ch)
+}
+
 func (b *EthAPIBackend) SubscribeNewVoteEvent(ch chan<- core.NewVoteEvent) event.Subscription {
 	if b.eth.VotePool() == nil {
 		return nil

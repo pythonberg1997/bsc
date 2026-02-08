@@ -643,6 +643,9 @@ func (b testBackend) SubscribeNewTxsEvent(events chan<- core.NewTxsEvent) event.
 func (b testBackend) SubscribeNewOracleTxsEvent(chan<- core.NewOracleTxsEvent) event.Subscription {
 	panic("implement me")
 }
+func (b testBackend) SubscribeNewHighGasTxsEvent(chan<- core.NewHighGasTxsEvent) event.Subscription {
+	panic("implement me")
+}
 func (b testBackend) ChainConfig() *params.ChainConfig             { return b.chain.Config() }
 func (b testBackend) Engine() consensus.Engine                     { return b.chain.Engine() }
 func (b testBackend) CurrentValidators() ([]common.Address, error) { return []common.Address{}, nil }

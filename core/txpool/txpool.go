@@ -402,6 +402,19 @@ func (p *TxPool) SubscribeOracleTransactions(ch chan<- core.NewOracleTxsEvent) e
 	return p.subs.Track(event.JoinSubscriptions(subs...))
 }
 
+// SubscribeHighGasTransactions registers a subscription for high-gas-cost transaction events,
+// aggregating events from all subpools that support high-gas filtering.
+func (p *TxPool) SubscribeHighGasTransactions(ch chan<- core.NewHighGasTxsEvent) event.Subscription {
+	subs := make([]event.Subscription, 0, len(p.subpools))
+	for _, subpool := range p.subpools {
+		sub := subpool.SubscribeHighGasTransactions(ch)
+		if sub != nil {
+			subs = append(subs, sub)
+		}
+	}
+	return p.subs.Track(event.JoinSubscriptions(subs...))
+}
+
 // SubscribeReannoTxsEvent registers a subscription of ReannoTxsEvent and starts sending
 // events to the given channel.
 func (p *TxPool) SubscribeReannoTxsEvent(ch chan<- core.ReannoTxsEvent) event.Subscription {

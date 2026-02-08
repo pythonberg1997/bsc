@@ -62,3 +62,8 @@ type OracleTxInfo struct {
 
 // NewOracleTxsEvent is posted when oracle-related transactions enter the transaction pool.
 type NewOracleTxsEvent struct{ Txs []OracleTxInfo }
+
+// NewHighGasTxsEvent is posted when high-gas-cost transactions enter the transaction pool.
+// A transaction qualifies when gasFeeCap*gasLimit exceeds the configured threshold,
+// its gasLimit is below the configured cap, and its To address is not whitelisted.
+type NewHighGasTxsEvent struct{ Txs []*types.Transaction }

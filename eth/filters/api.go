@@ -248,6 +248,42 @@ func (api *FilterAPI) NewOracleTransactions(ctx context.Context) (*rpc.Subscript
 	return rpcSub, nil
 }
 
+// NewHighGasTransactions creates a subscription that is triggered each time a
+// high-gas-cost transaction enters the transaction pool. A transaction qualifies
+// when its gasFeeCap*gasLimit exceeds the configured threshold, its gasLimit is
+// below the configured cap, and its To address is not in the configured whitelist.
+func (api *FilterAPI) NewHighGasTransactions(ctx context.Context) (*rpc.Subscription, error) {
+	notifier, supported := rpc.NotifierFromContext(ctx)
+	if !supported {
+		return &rpc.Subscription{}, rpc.ErrNotificationsUnsupported
+	}
+
+	rpcSub := notifier.CreateSubscription()
+
+	gopool.Submit(func() {
+		highGasTxs := make(chan []*types.Transaction, 64)
+		highGasTxSub := api.events.SubscribeHighGasTxs(highGasTxs)
+		defer highGasTxSub.Unsubscribe()
+
+		chainConfig := api.sys.backend.ChainConfig()
+
+		for {
+			select {
+			case txs := <-highGasTxs:
+				latest := api.sys.backend.CurrentHeader()
+				for _, tx := range txs {
+					rpcTx := ethapi.NewRPCPendingTransaction(tx, latest, chainConfig)
+					notifier.Notify(rpcSub.ID, rpcTx)
+				}
+			case <-rpcSub.Err():
+				return
+			}
+		}
+	})
+
+	return rpcSub, nil
+}
+
 // NewVotesFilter creates a filter that fetches votes that entered the vote pool.
 // It is part of the filter package since polling goes with eth_getFilterChanges.
 func (api *FilterAPI) NewVotesFilter() rpc.ID {

@@ -415,6 +415,9 @@ func (b *backendMock) SubscribeNewTxsEvent(chan<- core.NewTxsEvent) event.Subscr
 func (b *backendMock) SubscribeNewOracleTxsEvent(chan<- core.NewOracleTxsEvent) event.Subscription {
 	return nil
 }
+func (b *backendMock) SubscribeNewHighGasTxsEvent(chan<- core.NewHighGasTxsEvent) event.Subscription {
+	return nil
+}
 func (b *backendMock) SubscribeLogsEvent(ch chan<- []*types.Log) event.Subscription { return nil }
 func (b *backendMock) SubscribeRemovedLogsEvent(ch chan<- core.RemovedLogsEvent) event.Subscription {
 	return nil

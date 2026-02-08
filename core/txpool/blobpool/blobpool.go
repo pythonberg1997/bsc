@@ -1764,6 +1764,12 @@ func (p *BlobPool) SubscribeOracleTransactions(ch chan<- core.NewOracleTxsEvent)
 	return nil
 }
 
+// SubscribeHighGasTransactions is a no-op for blob pool since high-gas-cost
+// filtering is handled by the legacy pool.
+func (p *BlobPool) SubscribeHighGasTransactions(ch chan<- core.NewHighGasTxsEvent) event.Subscription {
+	return nil
+}
+
 // SubscribeReannoTxsEvent registers a subscription of ReannoTxsEvent and
 // starts sending event to the given channel.
 func (p *BlobPool) SubscribeReannoTxsEvent(ch chan<- core.ReannoTxsEvent) event.Subscription {

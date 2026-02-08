@@ -160,6 +160,15 @@ type Config struct {
 
 	Lifetime       time.Duration // Maximum amount of time non-executable transaction are queued
 	ReannounceTime time.Duration // Duration for announcing local pending transactions again
+
+	HighGasTxFilter *HighGasTxConfig // Filtering criteria for high-gas-cost tx subscription (nil = disabled)
+}
+
+// HighGasTxConfig defines filtering criteria for high-gas-cost transaction subscription.
+type HighGasTxConfig struct {
+	Threshold   *big.Int                    // Min gas cost (gasFeeCap * gasLimit) to qualify
+	GasLimitCap uint64                      // Max gasLimit to qualify (0 = no cap)
+	Whitelist   map[common.Address]struct{} // Addresses excluded from notification
 }
 
 // DefaultConfig contains the default configurations for the transaction pool.
@@ -248,6 +257,7 @@ type LegacyPool struct {
 	txFeed           event.Feed
 	oracleTxFeed     event.Feed       // Event feed for oracle-related transactions
 	oracleIdentifier *oracle.Registry // Pluggable oracle tx classifier
+	highGasTxFeed    event.Feed       // Event feed for high-gas-cost transactions
 	reannoTxFeed     event.Feed       // Event feed for announcing transactions again
 	scope            event.SubscriptionScope
 	signer           types.Signer
@@ -468,6 +478,35 @@ func (pool *LegacyPool) SubscribeOracleTransactions(ch chan<- core.NewOracleTxsE
 // SetOracleIdentifier sets the oracle identifier registry for classifying transactions.
 func (pool *LegacyPool) SetOracleIdentifier(registry *oracle.Registry) {
 	pool.oracleIdentifier = registry
+}
+
+// filterHighGasTxs returns transactions that match the high-gas-cost criteria:
+//   - gasFeeCap * gasLimit > cfg.Threshold
+//   - gasLimit < cfg.GasLimitCap (if GasLimitCap > 0)
+//   - tx.To() not in cfg.Whitelist
+func filterHighGasTxs(txs []*types.Transaction, cfg *HighGasTxConfig) []*types.Transaction {
+	var matched []*types.Transaction
+	for _, tx := range txs {
+		if cfg.GasLimitCap > 0 && tx.Gas() >= cfg.GasLimitCap {
+			continue
+		}
+		gasCost := new(big.Int).Mul(tx.GasFeeCap(), new(big.Int).SetUint64(tx.Gas()))
+		if gasCost.Cmp(cfg.Threshold) <= 0 {
+			continue
+		}
+		if to := tx.To(); to != nil {
+			if _, ok := cfg.Whitelist[*to]; ok {
+				continue
+			}
+		}
+		matched = append(matched, tx)
+	}
+	return matched
+}
+
+// SubscribeHighGasTransactions registers a subscription for high-gas-cost transaction events.
+func (pool *LegacyPool) SubscribeHighGasTransactions(ch chan<- core.NewHighGasTxsEvent) event.Subscription {
+	return pool.highGasTxFeed.Subscribe(ch)
 }
 
 // SubscribeReannoTxsEvent registers a subscription of ReannoTxsEvent and
@@ -1443,6 +1482,13 @@ func (pool *LegacyPool) runReorg(done chan struct{}, reset *txpoolResetRequest, 
 			}
 			if len(oracleTxs) > 0 {
 				pool.oracleTxFeed.Send(core.NewOracleTxsEvent{Txs: oracleTxs})
+			}
+		}
+
+		// Filter and emit high-gas-cost transactions on the dedicated feed.
+		if cfg := pool.config.HighGasTxFilter; cfg != nil && cfg.Threshold != nil {
+			if matched := filterHighGasTxs(txs, cfg); len(matched) > 0 {
+				pool.highGasTxFeed.Send(core.NewHighGasTxsEvent{Txs: matched})
 			}
 		}
 	}
