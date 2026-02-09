@@ -476,6 +476,47 @@ func (ec *Client) SubscribeNewVotes(ctx context.Context, ch chan<- *types.VoteEn
 	return ec.c.EthSubscribe(ctx, ch, "newVotes")
 }
 
+// OracleTransaction wraps a transaction with oracle-specific metadata returned
+// by the newOracleTransactions subscription.
+type OracleTransaction struct {
+	Tx         *types.Transaction
+	OracleType string
+}
+
+// oracleTransactionRaw is the JSON-level representation used for unmarshaling.
+type oracleTransactionRaw struct {
+	OracleType string `json:"oracleType"`
+}
+
+// UnmarshalJSON decodes an oracle transaction from the RPC JSON representation.
+func (otx *OracleTransaction) UnmarshalJSON(msg []byte) error {
+	// Decode the core transaction fields.
+	otx.Tx = new(types.Transaction)
+	if err := json.Unmarshal(msg, otx.Tx); err != nil {
+		return err
+	}
+	// Decode the oracle-specific metadata.
+	var raw oracleTransactionRaw
+	if err := json.Unmarshal(msg, &raw); err != nil {
+		return err
+	}
+	otx.OracleType = raw.OracleType
+	return nil
+}
+
+// SubscribeNewOracleTransactions subscribes to notifications about oracle-related
+// transactions (e.g., Chainlink, Redstone) entering the transaction pool.
+func (ec *Client) SubscribeNewOracleTransactions(ctx context.Context, ch chan<- *OracleTransaction) (ethereum.Subscription, error) {
+	return ec.c.EthSubscribe(ctx, ch, "newOracleTransactions")
+}
+
+// SubscribeNewHighGasTransactions subscribes to notifications about high-gas-cost
+// transactions entering the transaction pool. Filtering criteria (threshold,
+// gasLimit cap, whitelist) are configured on the server side.
+func (ec *Client) SubscribeNewHighGasTransactions(ctx context.Context, ch chan<- *types.Transaction) (ethereum.Subscription, error) {
+	return ec.c.EthSubscribe(ctx, ch, "newHighGasTransactions")
+}
+
 // State Access
 
 // NetworkID returns the network ID for this client.
