@@ -78,7 +78,11 @@ var (
 		utils.OverrideFermi,
 		utils.OverrideOsaka,
 		utils.OverrideMendel,
+		utils.OverrideBPO1,
+		utils.OverrideBPO2,
+		utils.OverridePasteur,
 		utils.OverrideVerkle,
+		utils.OverrideGenesisFlag,
 		utils.OverrideFullImmutabilityThreshold,
 		utils.OverrideMinBlocksForBlobRequests,
 		utils.OverrideDefaultExtraReserveForBlobRequests,
@@ -98,6 +102,7 @@ var (
 		utils.TxPoolOverflowPoolSlotsFlag,
 		utils.TxPoolLifetimeFlag,
 		utils.TxPoolReannounceTimeFlag,
+		utils.MinerTxGasLimitFlag,
 		utils.BlobPoolDataDirFlag,
 		utils.BlobPoolDataCapFlag,
 		utils.BlobPoolPriceBumpFlag,
@@ -167,6 +172,8 @@ var (
 		utils.VMEnableDebugFlag,
 		utils.VMTraceFlag,
 		utils.VMTraceJsonConfigFlag,
+		utils.VMWitnessStatsFlag,
+		utils.VMStatelessSelfValidationFlag,
 		utils.NetworkIdFlag,
 		utils.EthStatsURLFlag,
 		utils.GpoBlocksFlag,
@@ -230,9 +237,12 @@ var (
 		utils.RPCGlobalGasCapFlag,
 		utils.RPCGlobalEVMTimeoutFlag,
 		utils.RPCGlobalTxFeeCapFlag,
+		utils.RPCGlobalLogQueryLimit,
 		utils.AllowUnprotectedTxs,
 		utils.BatchRequestLimit,
 		utils.BatchResponseMaxSize,
+		utils.RPCTxSyncDefaultTimeoutFlag,
+		utils.RPCTxSyncMaxTimeoutFlag,
 	}
 
 	metricsFlags = []cli.Flag{
@@ -250,6 +260,7 @@ var (
 		utils.MetricsInfluxDBTokenFlag,
 		utils.MetricsInfluxDBBucketFlag,
 		utils.MetricsInfluxDBOrganizationFlag,
+		utils.StateSizeTrackingFlag,
 	}
 
 	fakeBeaconFlags = []cli.Flag{
@@ -455,9 +466,19 @@ func startNode(ctx *cli.Context, stack *node.Node, backend ethapi.Backend, isCon
 	// Start auxiliary services if enabled
 	ethBackend, ok := backend.(*eth.EthAPIBackend)
 	gasCeil := ethBackend.Miner().GasCeil()
+	maxTxGas := uint64(0)
 	if gasCeil > params.SystemTxsGasSoftLimit {
-		ethBackend.TxPool().SetMaxGas(gasCeil - params.SystemTxsGasSoftLimit)
+		maxTxGas = gasCeil - params.SystemTxsGasSoftLimit
 	}
+	if txGasLimit := ethBackend.Miner().TxGasLimit(); txGasLimit > 0 {
+		if maxTxGas == 0 || txGasLimit < maxTxGas {
+			maxTxGas = txGasLimit
+		}
+	}
+	if maxTxGas > 0 {
+		ethBackend.TxPool().SetMaxGas(maxTxGas)
+	}
+
 	if ctx.Bool(utils.MiningEnabledFlag.Name) {
 		// Mining only makes sense if a full Ethereum node is running
 		if ctx.String(utils.SyncModeFlag.Name) == "light" {
