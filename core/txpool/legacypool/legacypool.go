@@ -170,6 +170,36 @@ type HighGasTxConfig struct {
 	Whitelist   map[common.Address]struct{} // Addresses excluded from notification
 }
 
+// UnmarshalTOML decodes HighGasTxConfig from TOML-friendly types.
+func (c *HighGasTxConfig) UnmarshalTOML(unmarshal func(interface{}) error) error {
+	var dec struct {
+		Threshold   string   `toml:"Threshold"`
+		GasLimitCap uint64   `toml:"GasLimitCap"`
+		Whitelist   []string `toml:"Whitelist"`
+	}
+	if err := unmarshal(&dec); err != nil {
+		return err
+	}
+	if dec.Threshold != "" {
+		t, ok := new(big.Int).SetString(dec.Threshold, 10)
+		if !ok {
+			return fmt.Errorf("invalid HighGasTxConfig.Threshold: %q", dec.Threshold)
+		}
+		c.Threshold = t
+	}
+	c.GasLimitCap = dec.GasLimitCap
+	if len(dec.Whitelist) > 0 {
+		c.Whitelist = make(map[common.Address]struct{}, len(dec.Whitelist))
+		for _, addr := range dec.Whitelist {
+			if !common.IsHexAddress(addr) {
+				return fmt.Errorf("invalid HighGasTxConfig.Whitelist address: %q", addr)
+			}
+			c.Whitelist[common.HexToAddress(addr)] = struct{}{}
+		}
+	}
+	return nil
+}
+
 // DefaultConfig contains the default configurations for the transaction pool.
 var DefaultConfig = Config{
 	Journal:   "transactions.rlp",
