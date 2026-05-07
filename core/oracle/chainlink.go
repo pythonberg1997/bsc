@@ -22,10 +22,12 @@ import (
 )
 
 var (
-	// Chainlink transmit method selectors.
-	chainlinkSelectors = [2][4]byte{
+	// Chainlink method selectors.
+	chainlinkSelectors = [4][4]byte{
 		{0x6f, 0xad, 0xcf, 0x72},
 		{0xb6, 0x4f, 0xa9, 0xe6},
+		{0xb1, 0xdc, 0x65, 0xa4}, // dual transmit
+		{0xba, 0x0c, 0xb2, 0x9e}, // dual transmitSecondary
 	}
 
 	// Chainlink forwarder contract addresses.
@@ -79,7 +81,8 @@ func (c *ChainlinkIdentifier) Identify(tx *types.Transaction) *OracleInfo {
 		return nil
 	}
 	sel := [4]byte(data[:4])
-	if sel != chainlinkSelectors[0] && sel != chainlinkSelectors[1] {
+	if sel != chainlinkSelectors[0] && sel != chainlinkSelectors[1] &&
+		sel != chainlinkSelectors[2] && sel != chainlinkSelectors[3] {
 		return nil
 	}
 	// Check target address against the known set.
